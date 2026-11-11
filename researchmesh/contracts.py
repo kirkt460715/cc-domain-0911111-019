@@ -134,9 +134,10 @@ def source_contract(data):
         "abstract",
         "country",
     }
-    fields(data, allowed, {"title", "institution", "kind"})
+    fields(data, allowed, {"title", "kind"})
     title = bounded_text(data["title"], 1000)
-    institution = bounded_text(data["institution"], 500)
+    # 机构允许缺失：缺机构记录在计量时保留在未知组，而不是被拒绝。
+    institution = bounded_text(data.get("institution", ""), 500, True)
     kind = data["kind"]
     if kind not in {"patent", "prototype", "process", "dataset", "software"}:
         fail("input", "unsupported achievement kind")

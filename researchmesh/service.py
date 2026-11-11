@@ -12,6 +12,7 @@ from .decisions.graph import DecisionGraph
 from .decisions.review import ReviewQueue
 from .snapshots.master import MasterRecords
 from .snapshots.releases import Releases
+from .metrics import Metrics
 from .contracts import fields, fail
 
 
@@ -32,6 +33,7 @@ class ResearchMesh:
         )
         self.releases = Releases(self.store, self.sources, self.graph, self.masters)
         self.catalogue = PublishedCatalogue(self.releases)
+        self.metrics = Metrics(self.store, self.releases, self.dictionary)
         self.quality = Quality(
             self.store,
             self.sources,
@@ -71,7 +73,8 @@ class ResearchMesh:
             (
                 "dictionary",
                 self.dictionary,
-                ["put", "remove", "list", "impact", "resolve"],
+                ["put", "remove", "list", "impact", "resolve", "resolve_at",
+                 "history_snapshot", "verify_history"],
             ),
             ("evidence", self.evidence, ["compare", "explain"]),
             (
@@ -152,6 +155,12 @@ class ResearchMesh:
                 ],
             ),
             ("storage", self.store, ["verify_audit", "audit_page", "backup"]),
+            (
+                "metrics",
+                self.metrics,
+                ["measure", "freeze", "get", "list", "drill", "compare",
+                 "export", "verify"],
+            ),
         ]
         result = {}
         for prefix, component, methods in definitions:

@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS review_tasks(id TEXT PRIMARY KEY,left_key TEXT NOT NU
  owner TEXT,lease_until INTEGER NOT NULL,result TEXT);
 CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,entity TEXT NOT NULL,
  payload TEXT NOT NULL,previous TEXT NOT NULL,digest TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dictionary_history(revision INTEGER NOT NULL,kind TEXT NOT NULL,
+ alias TEXT NOT NULL,target TEXT,PRIMARY KEY(revision,kind,alias));
+CREATE INDEX IF NOT EXISTS dictionary_history_revision ON dictionary_history(revision);
+CREATE TABLE IF NOT EXISTS analyses(id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,
+ digest TEXT NOT NULL);
 """
 
 

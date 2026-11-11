@@ -8,21 +8,66 @@ class Dictionary:
     def resolve(self, kind, alias):
         if kind not in {"institution", "tag"}:
             fail("input", "unsupported dictionary kind")
-        visited = set()
-        current = alias
-        while True:
-            if current in visited:
-                fail("cycle", "dictionary contains alias cycle")
-            visited.add(current)
-            row = self.store.one(
-                "SELECT target FROM dictionary WHERE kind=? AND alias=?",
-                (kind, current),
+        mapping = {
+            row["alias"]: row["target"]
+            for row in self.store.rows(
+                "SELECT alias,target FROM dictionary WHERE kind=?", (kind,)
             )
-            if row is None:
-                return current
-            current = row["target"]
-            if len(visited) > 100:
-                fail("capacity", "alias chain too long")
+        }
+        target, _ = self._walk(alias, mapping)
+        return target
+
+    @staticmethod
+    def _walk(alias, mapping):
+        from ..metrics.scoring import resolve_chain
+
+        return resolve_chain(alias, mapping)
+
+    def mapping_at(self, kind, revision):
+        """重建指定词典修订版下某类别的完整别名映射。"""
+        if kind not in {"institution", "tag"}:
+            fail("input", "unsupported dictionary kind")
+        integer(revision, 0)
+        current = self.store.revision("dictionary")
+        if revision > current:
+            fail("input", "dictionary revision is in the future")
+        latest = self.store.one(
+            "SELECT MAX(revision) AS revision FROM dictionary_history"
+            " WHERE kind=? AND revision<=?",
+            (kind, revision),
+        )
+        if latest is None or latest["revision"] is None:
+            return {}
+        snapshot = self.store.rows(
+            "SELECT alias,target FROM dictionary_history WHERE revision=? AND kind=?",
+            (latest["revision"], kind),
+        )
+        return {
+            entry["alias"]: entry["target"]
+            for entry in snapshot
+            if entry["target"] is not None
+        }
+
+    def resolve_at(self, kind, alias, revision):
+        mapping = self.mapping_at(kind, revision)
+        target, chain = self._walk(alias, mapping)
+        return {"alias": alias, "canonical": target, "chain": chain,
+                "dictionary_revision": revision}
+
+    def _snapshot_kind(self, con, kind, revision):
+        current = {
+            row["alias"]: row["target"]
+            for row in self.store.rows(
+                "SELECT alias,target FROM dictionary WHERE kind=?", (kind,)
+            )
+        }
+        previous = self.mapping_at(kind, revision - 1)
+        aliases = sorted(set(previous) | set(current))
+        for alias in aliases:
+            con.execute(
+                "INSERT INTO dictionary_history VALUES(?,?,?,?)",
+                (revision, kind, alias, current.get(alias)),
+            )
 
     def put(self, kind, alias, target, expected_revision, reason):
         from .text import fold
@@ -44,6 +89,7 @@ class Dictionary:
             )
             resolved = self.resolve(kind, alias)
             revision = self.store.bump("dictionary")
+            self._snapshot_kind(con, kind, revision)
             self.store.audit(
                 "dictionary_changed",
                 kind,
@@ -81,6 +127,7 @@ class Dictionary:
                 "DELETE FROM dictionary WHERE kind=? AND alias=?", (kind, alias)
             )
             revision = self.store.bump("dictionary")
+            self._snapshot_kind(con, kind, revision)
             self.store.audit(
                 "dictionary_removed",
                 kind,
@@ -106,6 +153,35 @@ class Dictionary:
             "rows": rows,
             "digest": digest(rows),
         }
+
+    def history_snapshot(self, kind, revision):
+        mapping = self.mapping_at(kind, revision)
+        rows = [
+            {"alias": alias, "target": target}
+            for alias, target in sorted(mapping.items())
+        ]
+        return {
+            "kind": kind,
+            "revision": revision,
+            "rows": rows,
+            "digest": digest(rows),
+        }
+
+    def verify_history(self):
+        """重放历史快照，确认最新状态与当前词典表一致。"""
+        current = self.store.revision("dictionary")
+        for kind in ("institution", "tag"):
+            rebuilt = self.mapping_at(kind, current)
+            actual = {
+                row["alias"]: row["target"]
+                for row in self.store.rows(
+                    "SELECT alias,target FROM dictionary WHERE kind=?", (kind,)
+                )
+            }
+            if rebuilt != actual:
+                fail("integrity", "dictionary history does not rebuild current table",
+                     kind=kind)
+        return {"verified": True, "revision": current}
 
     def impact(self, kind, alias):
         from .text import fold

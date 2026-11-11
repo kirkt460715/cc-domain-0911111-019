@@ -88,8 +88,8 @@ class Normalizer:
             "abstract_tokens": tokens(raw["abstract"]),
             "identifiers": {},
         }
-        if not normalized["title"] or not normalized["institution"]:
-            fail("input", "title and institution must contain letters or numbers")
+        if not normalized["title"]:
+            fail("input", "title must contain letters or numbers")
         for namespace, values in raw["identifiers"].items():
             normalized["identifiers"][namespace] = sorted(
                 set(normalize_external(namespace, value) for value in values)
